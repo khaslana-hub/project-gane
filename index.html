@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIXEL RUSH</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">A PIXEL ENDLESS RUNNER</p>
+      <h1>PIXEL <span>RUSH</span></h1>
+    </div>
+    <div class="hud">
+      <div><small>SCORE</small><strong id="score">00000</strong></div>
+      <div><small>LIVES</small><strong id="lives">♥ ♥ ♥</strong></div>
+    </div>
+  </header>
+
+  <section class="game-frame">
+    <canvas id="game" width="900" height="420"></canvas>
+
+    <div class="panel" id="start-panel">
+      <p class="eyebrow">WELCOME RUNNER</p>
+      <h2>พร้อมออกวิ่งหรือยัง?</h2>
+      <p>ใส่ชื่อของคุณเพื่อบันทึกคะแนนและเข้าสู่ตารางอันดับ</p>
+      <input id="player-name" maxlength="16" placeholder="ชื่อผู้เล่น">
+      <button id="start-btn">เริ่มเกม</button>
+      <div class="mini-board">
+        <h3>🏆 TOP 5</h3>
+        <ol id="start-leaderboard"></ol>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="result-panel">
+      <p class="eyebrow">RUN COMPLETE</p>
+      <h2 id="result-title">จบเกมแล้ว!</h2>
+      <p id="result-score"></p>
+      <p id="result-rank" class="rank"></p>
+      <h3>🏆 ตารางคะแนน TOP 10</h3>
+      <ol id="result-leaderboard" class="leaderboard"></ol>
+      <button id="again-btn">เล่นอีกครั้ง</button>
+    </div>
+  </section>
+
+  <section class="controls">
+    <div><kbd>SPACE</kbd> / <kbd>↑</kbd><span>กระโดด</span></div>
+    <div><kbd>SHIFT</kbd> / <kbd>X</kbd><span>แดช</span></div>
+    <div class="dash-status" id="dash-status">DASH: READY</div>
+  </section>
+  <p class="tip">แตะด้านซ้ายของเกมเพื่อกระโดด และแตะด้านขวาเพื่อแดช (มือถือ)</p>
+</main>
+<script src="game.js"></script>
+</body>
+</html>
