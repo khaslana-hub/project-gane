@@ -45,6 +45,15 @@ const DASH_SUPER_USES = 8;   // กดแดชครบกี่ครั้ง
 const SUPER_MIN = 5, SUPER_MAX = 7;  // พุ่งนาน 5-7 วินาที (สุ่ม)
 const SUPER_MULT = 1.8;      // คูณความเร็วตอนพุ่ง
 const GRACE_SECONDS = 3;     // อมตะต่ออีก 3 วินาทีหลังพุ่งจบ
+// ===== บอส / หัวใจ =====
+const MAX_LIVES = 3;
+const BOSS_AT = 2500;        // บอส Void เกิดแน่นอนเมื่อถึงระยะนี้
+const HEART_CHANCE = .5;     // โอกาสมีหัวใจเสี้ยว 1 ดวงต่อ 1 ด่าน
+const BOSS_ON_HEART = .25;   // เก็บหัวใจแล้วมีโอกาสบอสโผล่
+const BOSS_RANDOM = .10;     // โอกาสบอสสุ่มโผล่ตอนขึ้นด่านใหม่
+const BOSS_EMO = ["👹","🐲","🧟","🦂","🦍","🐺","🦅","🤖","👾","👽"]; // บอสของแต่ละด่าน
+let boss = null, pickups = [], voidDone = false, bossCooldown = 0, heartAt = -1, curMv = 6;
+let toast = {text:"",t:0};
 const DODGE_REFUND = 30;     // ลดคูลดาวน์ 0.5 วินาที (30 เฟรม) ต่อสิ่งกีดขวางที่แดชผ่าน
 let hitCooldown = 0;
 let sceneIndex = 0;
@@ -137,8 +146,13 @@ function updateHUD(){
   $("score").textContent =
     String(Math.floor(score)).padStart(5,"0");
 
-  $("lives").textContent =
-    Array.from({length:3},(_,i)=>i<lives?"♥":"♡").join(" ");
+  const hs=[];
+  for(let i=0;i<MAX_LIVES;i++){
+    if(lives>=i+1) hs.push("♥");
+    else if(lives>=i+.5) hs.push('<span style="background:linear-gradient(90deg,#ff6b83 50%,#6a7190 50%);-webkit-background-clip:text;background-clip:text;color:transparent">♥</span>');
+    else hs.push("♡");
+  }
+  $("lives").innerHTML=hs.join(" ");
 
   const prog = `${dashUses}/${DASH_SUPER_USES}`;
   $("dash-status").textContent =
@@ -168,6 +182,8 @@ function startGame(){
   superTime = 0; graceTime = 0;
   hitCooldown = 0;
   sceneIndex = 0;
+  boss = null; pickups = []; voidDone = false; bossCooldown = 0; toast.t = 0;
+  stageStart(0);
 
   player.y = groundY - player.h;
   player.vy = 0;
@@ -218,7 +234,7 @@ function dash(){
   if(dashUses>=DASH_SUPER_USES){ startSuperDash(); return; }
 
   dashReady = false;
-  dashTime = 18;
+  dashTime = 24;  // เดิม 18
 
   // เริ่ม 2.5 วินาที เพิ่มครั้งละ 0.7 วินาที สูงสุด 8 วินาที
   const cooldownSeconds =
@@ -547,7 +563,14 @@ function drawPixelCharacter(){
 
 // วาดสิ่งกีดขวางตามธีมด่าน
 function drawObstacle(o){
-  const s=scenes[o.stage], e=s.ob[OB_IDX[o.type]];
+  const s=scenes[o.stage];
+  if(o.shot){
+    ctx.save(); ctx.translate(o.x+o.w/2,o.y+o.h/2); if(!o.landed) ctx.rotate(o.spin);
+    ctx.font="30px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.shadowColor=o.emo==="🌑"||o.emo==="🔮"?"#a64dff":s.accent; ctx.shadowBlur=12;
+    ctx.fillText(o.emo,0,2); ctx.restore(); return;
+  }
+  const e=s.ob[OB_IDX[o.type]];
   const size={tall:40,long:31,air:26,rock:32,spikes:29}[o.type];
   const cols=Math.max(1,Math.round(o.w/size)), rows=Math.max(1,Math.round(o.h/size));
   const cw=o.w/cols, ch=o.h/rows;
@@ -718,6 +741,128 @@ function drawBackground(){
   ctx.fillText(b.name,18,25);
 }
 
+// ===== หัวใจเสี้ยว =====
+function say(text){ toast.text=text; toast.t=110; }
+
+// เริ่มด่านใหม่: ทอยหัวใจ 50% และบอสสุ่ม 10%
+function stageStart(idx){
+  heartAt = Math.random()<HEART_CHANCE ? score+80+Math.random()*(STAGE_LEN-260) : -1;
+  if(idx>0 && Math.random()<BOSS_RANDOM) tryBoss(false);
+}
+
+function spawnHeart(){
+  const y=[groundY-46,groundY-125,groundY-165][Math.floor(Math.random()*3)]; // วิ่งชน / กระโดดเก็บ
+  pickups.push({x:W+10,y,by:y,w:24,h:22,ph:Math.random()*6});
+}
+
+function collectHeart(){
+  const full = lives>=MAX_LIVES;
+  lives=Math.min(MAX_LIVES,lives+.5);
+  say(full?"♥ FULL":"+½ ♥");
+  for(let i=0;i<12;i++) particles.push({x:player.x+20,y:player.y+20,vx:(Math.random()-.5)*7,life:22});
+  updateHUD();
+  if(Math.random()<BOSS_ON_HEART) tryBoss(false); // เก็บหัวใจ -> โอกาสบอสโผล่
+}
+
+function drawHeart(h){
+  const cx=h.x+h.w/2, cy=h.y+h.h/2;
+  ctx.save();
+  glow(cx,cy,34,"#ff6b83","88");
+  ctx.font="26px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.globalAlpha=.3; ctx.fillText("❤️",cx,cy+1);       // ครึ่งที่หายไป (จาง)
+  ctx.beginPath(); ctx.rect(h.x-6,h.y-8,h.w/2+6,h.h+16); ctx.clip();
+  ctx.globalAlpha=1; ctx.fillText("❤️",cx,cy+1);        // ครึ่งหัวใจ
+  ctx.restore();
+}
+
+// ===== บอส =====
+function tryBoss(isVoid){
+  if(boss) return false;
+  if(!isVoid && score<bossCooldown) return false;
+  boss={void:isVoid,stage:sceneIndex,x:W+160,y:groundY-130,t:0,state:"enter",
+        dur:isVoid?1320:960,total:isVoid?1320:960,atk:60,q:[]};
+  say(isVoid?"⚠ THE VOID APPEARS":"⚠ BOSS: "+scenes[sceneIndex].name);
+  return true;
+}
+
+function fireShot(type){
+  const b=boss, E=scenes[b.stage].ob, vd=b.void;
+  const o={type:"shot",shot:true,stage:b.stage,x:b.x-40,w:28,h:28,vy:0,g:0,spin:0,
+           sv:2+Math.random()*3+(vd?3:0)};
+  if(type==="roll"){ o.y=groundY-28;  o.emo=vd?"🌑":E[3]; }   // กลิ้งพื้น: กระโดดข้าม
+  else if(type==="mid"){ o.y=groundY-62;  o.emo=vd?"🔮":E[2]; } // ระดับอก: กระโดดข้าม
+  else if(type==="high"){ o.y=groundY-105; o.emo=vd?"🔮":E[2]; }// ระดับสูง: ห้ามกระโดด
+  else{ // ปาเป็นวงโค้ง ตกลงตรงตำแหน่งผู้เล่น แล้วค้างอยู่บนพื้น
+    o.emo=vd?"🌑":E[4]; o.y=b.y; o.vy=-4; o.g=.5;
+    const T=(4+Math.sqrt(16+2*.5*(groundY-28-o.y)))/.5;
+    o.sv=Math.max(0,(o.x-(player.x+12))/T-curMv);
+  }
+  obstacles.push(o);
+}
+
+function bossAttack(){
+  const b=boss, r=Math.random(), hard=Math.min(sceneIndex,9);
+  if(b.void && Math.random()<.3){ // Void: ปา 3 ลูกติดกัน (กระโดดทีเดียวข้ามได้ถ้าจังหวะดี)
+    for(let k=0;k<3;k++) b.q.push({d:k*18,type:Math.random()<.5?"roll":"mid"});
+    b.atk=36;
+  }else{
+    b.q.push({d:0,type:r<.32?"roll":r<.52?"mid":r<.72?"high":"lob"});
+    b.atk=0;
+  }
+  b.atk+=(b.void?42:62)+Math.random()*(b.void?24:34)-hard*1.5;
+}
+
+function updateBoss(dt){
+  const b=boss; if(!b) return;
+  b.t+=dt;
+  b.y=groundY-130+Math.sin(b.t*.05)*14;
+  b.q=b.q.filter(q=>{ q.d-=dt; if(q.d<=0){ fireShot(q.type); return false; } return true; });
+  if(b.state==="enter"){
+    b.x+=((W-150)-b.x)*.05*dt;
+    if(b.x<W-148){ b.state="fight"; b.atk=50; }
+  }else if(b.state==="fight"){
+    b.dur-=dt; b.atk-=dt;
+    if(b.atk<=0) bossAttack();
+    if(b.dur<=0) b.state="leave";
+  }else{
+    b.x+=6*dt;
+    if(b.x>W+200){ boss=null; spawnTimer=70; bossCooldown=score+400; say("BOSS CLEARED!"); }
+  }
+}
+
+function drawBoss(){
+  const b=boss; if(!b) return;
+  const s=scenes[b.stage], x=b.x, y=b.y;
+  const windup = b.state==="fight" && b.atk<16 && b.q.length===0;
+  ctx.save();
+  if(b.void){
+    glow(x,y,170,"#7a2cff","66");
+    ctx.fillStyle="#050008"; ctx.strokeStyle="#050008"; ctx.lineWidth=11;
+    T(x-34,y-50,x-14,y-112,x+4,y-60,"#050008"); T(x+34,y-50,x+14,y-112,x-4,y-60,"#050008");
+    ctx.beginPath(); ctx.ellipse(x,y,60,76,0,0,7); ctx.fill();
+    for(let k=-2;k<=2;k++){ ctx.beginPath(); ctx.moveTo(x+k*22,y+55);
+      ctx.quadraticCurveTo(x+k*22+Math.sin(b.t*.1+k)*14,y+92,x+k*22+Math.sin(b.t*.1+k*2)*22,y+126); ctx.stroke(); }
+    ctx.shadowColor="#c77dff"; ctx.shadowBlur=18; ctx.fillStyle=windup?"#ffffff":"#d9a0ff";
+    ctx.beginPath(); ctx.ellipse(x-21,y-16,9,14,.2,0,7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+21,y-16,9,14,-.2,0,7); ctx.fill();
+  }else{
+    glow(x,y,150,s.accent,windup?"cc":"66");
+    ctx.font=`${windup?128:116}px sans-serif`; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.shadowColor=s.accent; ctx.shadowBlur=20;
+    ctx.fillText(BOSS_EMO[b.stage],x,y);
+  }
+  ctx.restore();
+
+  // แถบเวลาบอส (รอดจนหมดเวลา บอสจะถอยไป)
+  const bw=300, bx=(W-bw)/2, f=Math.max(0,b.dur/b.total);
+  ctx.save();
+  ctx.fillStyle="#000a"; ctx.fillRect(bx-2,10,bw+4,16);
+  ctx.fillStyle=b.void?"#a64dff":s.accent; ctx.fillRect(bx,12,bw*f,12);
+  ctx.fillStyle="#fff"; ctx.font="bold 11px monospace"; ctx.textAlign="center";
+  ctx.fillText(b.void?"THE VOID":s.name+" GUARDIAN",W/2,40);
+  ctx.restore();
+}
+
 // เอฟเฟกต์ตอนพุ่งอมตะ: ออร่า + เส้นความเร็ว
 function drawRushFX(){
   if(superTime<=0) return;
@@ -766,6 +911,7 @@ function loopInner(now){
     prevScene=sceneIndex;
     sceneIndex=nextScene;
     sceneT=0;
+    stageStart(sceneIndex);
 
     for(let i=0;i<18;i++){
       particles.push({
@@ -803,18 +949,35 @@ function loopInner(now){
   player.anim+=.22*dt;
 
   // สร้างสิ่งกีดขวาง
-  spawnTimer-=dt*rushMul;
+  if(!boss) spawnTimer-=dt*rushMul;
 
-  if(spawnTimer<=0){
+  // บอส Void เกิดแน่นอนที่ระยะ 2500
+  if(!voidDone && score>=BOSS_AT && tryBoss(true)) voidDone=true;
+
+  // หัวใจเสี้ยวประจำด่าน
+  if(heartAt>=0 && score>=heartAt && !boss && obstacles.every(o=>o.x<W-220)){
+    spawnHeart(); heartAt=-1; spawnTimer=Math.max(spawnTimer,40);
+  }
+
+  if(spawnTimer<=0 && !boss){
     spawnObstacle();
     const dif=Math.min(score/MAX_SPEED_SCORE,1);
     spawnTimer=(95-55*dif)+Math.random()*(38-10*dif);
   }
 
   // เคลื่อนที่สิ่งกีดขวาง
-  const mv=(speed+(dashTime>0?2.5:0))*rushMul;
+  const mv=(speed+(dashTime>0?4:0))*rushMul; // แดชเร็วขึ้น +4 (เดิม +2.5)
+  curMv=mv;
   dist+=mv*dt;
   obstacles.forEach(o=>{
+    if(o.shot){ // ของที่บอสปา
+      o.x-=(mv+o.sv)*dt; o.spin+=.15*dt;
+      if(o.g){
+        o.vy+=o.g*dt; o.y+=o.vy*dt;
+        if(o.y>=groundY-o.h){ o.y=groundY-o.h; o.g=0; o.vy=0; o.sv=0; o.landed=true; }
+      }
+      return;
+    }
     o.x-=mv*(o.vx||1)*dt;
     if(o.type==="air") o.y=o.by+Math.sin(o.ph+=.11*dt)*o.amp; // ลอยขึ้นลง
   });
@@ -843,6 +1006,15 @@ function loopInner(now){
     takeHit();
   }
 
+  // หัวใจ
+  pickups.forEach(h=>{ h.x-=mv*dt; h.y=h.by+Math.sin(dist*.06+h.ph)*4; });
+  pickups=pickups.filter(h=>{
+    if(hitbox(p,h)){ collectHeart(); return false; }
+    return h.x+h.w>0;
+  });
+
+  updateBoss(dt);
+
   // เอฟเฟกต์
   particles.forEach(p=>{
     p.x+=p.vx*dt;
@@ -855,10 +1027,20 @@ function loopInner(now){
   // วาดทุกอย่าง
   drawBackground();
   obstacles.forEach(drawObstacle);
+  pickups.forEach(drawHeart);
+  drawBoss();
   if(graceTime>0) ctx.globalAlpha=.5+.3*Math.sin(graceTime*.4); // กะพริบตอนอมตะต่อ
   drawPixelCharacter();
   ctx.globalAlpha=1;
   drawRushFX();
+
+  if(toast.t>0){
+    toast.t-=dt;
+    ctx.save(); ctx.globalAlpha=Math.min(1,toast.t/30);
+    ctx.textAlign="center"; ctx.font="bold 26px monospace"; ctx.fillStyle="#fff";
+    ctx.shadowColor=scenes[sceneIndex].accent; ctx.shadowBlur=14;
+    ctx.fillText(toast.text,W/2,92); ctx.restore();
+  }
 
   particles.forEach(p=>{
     ctx.fillStyle = scenes[sceneIndex].accent;
